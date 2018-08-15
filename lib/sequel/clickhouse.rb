@@ -8,11 +8,23 @@ module Sequel
   # @see https://github.com/jeremyevans/sequel
   # @see https://clickhouse.yandex
   module Clickhouse
-    class Database < Sequel::Database # rubocop:disable Style/Documentation
+    class Database < Sequel::Database # rubocop:disable
       set_adapter_scheme :clickhouse
 
       def execute(sql, **options)
         synchronize(options[:server]) { |conn| conn.execute sql }
+      rescue ::Clickhouse::QueryError
+        raise DatabaseError
+      end
+
+      def query(sql, **options)
+        synchronize(options[:server]) { |conn| conn.query sql }
+      rescue ::Clickhouse::QueryError
+        raise DatabaseError
+      end
+
+      def tables(**options)
+        synchronize(options[:server], &:tables)
       rescue ::Clickhouse::QueryError
         raise DatabaseError
       end
@@ -73,6 +85,19 @@ module Sequel
         else
           super
         end
+      end
+    end
+
+    class Dataset < Sequel::Dataset
+      def fetch_rows(sql)
+        result_set = db.query(sql)
+        names = result_set.names.map(&:to_sym)
+        result_set.each { |row| yield names.zip(row).to_h }
+      end
+
+      def select_from_sql(sql)
+        super
+        sql << ' FINAL'
       end
     end
   end
